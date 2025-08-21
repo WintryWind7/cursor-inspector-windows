@@ -69,46 +69,88 @@ class MouseInspectorWindow(QMainWindow):
         control_panel.setLayout(control_layout)
         layout.addWidget(control_panel)
         
-        # 右侧显示区域
-        display_panel = QGroupBox("信息")
+        # 右侧显示区域 - 直接分为上下两栏
         display_layout = QVBoxLayout()
         display_layout.setContentsMargins(8, 8, 8, 8)
-        display_layout.setSpacing(6)
+        display_layout.setSpacing(8)
+        
+        # 上栏：系统信息
+        upper_panel = QGroupBox("系统信息")
+        upper_layout = QVBoxLayout()
+        upper_layout.setContentsMargins(6, 6, 6, 6)
+        upper_layout.setSpacing(0)  # 无间距，完全紧贴
+        upper_layout.setSizeConstraint(QVBoxLayout.SetNoConstraint)  # 不强制约束大小
+        
+        self.screen_res_label = QLabel("")
+        self.screen_res_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.screen_res_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.screen_res_label.setMaximumHeight(20)  # 限制高度
+        
+        # 分割线
+        separator = QLabel("─" * 30)
+        separator.setAlignment(Qt.AlignCenter)
+        separator.setStyleSheet("color: #888888; font-size: 9px; margin: 0px; padding: 0px;")
+        separator.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        separator.setMaximumHeight(8)  # 限制分割线高度
         
         self.pos_label = QLabel("鼠标位置: ")
         self.pos_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.pos_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.rel_label = QLabel("")
-        self.rel_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.percent_label = QLabel("")
-        self.percent_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.window_pos_label = QLabel("")
-        self.window_pos_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.screen_res_label = QLabel("")
-        self.screen_res_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.pos_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.pos_label.setMaximumHeight(20)  # 限制高度
+        
         self.color_label = QLabel("颜色值: ")
         self.color_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.color_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.color_label.setMaximumHeight(20)  # 限制高度
         
-        # 使用左对齐确保文本块不随布局扩展而漂移
-        left_aligned = QVBoxLayout()
-        left_aligned.setContentsMargins(0, 0, 0, 0)
-        left_aligned.setSpacing(4)
-        left_aligned.addWidget(self.pos_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        left_aligned.addWidget(self.rel_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        left_aligned.addWidget(self.percent_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        left_aligned.addWidget(self.window_pos_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        left_aligned.addWidget(self.screen_res_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        left_aligned.addWidget(self.color_label, alignment=Qt.AlignLeft | Qt.AlignTop)
-        display_layout.addLayout(left_aligned)
-        display_panel.setLayout(display_layout)
+        # 桌面分辨率在最上方，其他紧贴
+        upper_layout.addWidget(self.screen_res_label)
+        upper_layout.addWidget(separator)
+        upper_layout.addWidget(self.pos_label)
+        upper_layout.addWidget(self.color_label)
+        upper_panel.setLayout(upper_layout)
+        
+        # 下栏：窗口信息
+        lower_panel = QGroupBox("窗口信息")
+        lower_layout = QVBoxLayout()
+        lower_layout.setContentsMargins(6, 6, 6, 6)
+        lower_layout.setSpacing(0)  # 无间距，完全紧贴
+        
+        self.window_pos_label = QLabel("")
+        self.window_pos_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.window_pos_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.window_pos_label.setMaximumHeight(20)  # 限制高度
+        
+        # 重新创建相对位置和百分比标签
+        self.rel_label = QLabel("")
+        self.rel_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.rel_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.rel_label.setMaximumHeight(20)  # 限制高度
+        
+        self.percent_label = QLabel("")
+        self.percent_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.percent_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)  # 固定高度
+        self.percent_label.setMaximumHeight(20)  # 限制高度
+        
+        lower_layout.addWidget(self.window_pos_label)
+        lower_layout.addWidget(self.rel_label)
+        lower_layout.addWidget(self.percent_label)
+        lower_panel.setLayout(lower_layout)
+        
+        # 添加到主布局
+        display_layout.addWidget(upper_panel, stretch=2)
+        display_layout.addWidget(lower_panel, stretch=1)
         # 让右侧信息区紧凑且占剩余空间
-        layout.addWidget(display_panel, stretch=1)
+        layout.addLayout(display_layout, stretch=1)
         
         # 初始化窗口列表
         self.refresh_window_list()
         
         # 初始化屏幕分辨率显示
         self.update_screen_resolution()
+        
+        # 初始化窗口位置显示
+        self.update_window_position_display()
         
         # 定时器更新
         self.timer = QTimer(self)
@@ -194,10 +236,13 @@ class MouseInspectorWindow(QMainWindow):
             # 固定顶部位置显示鼠标坐标
             self.pos_label.setText(f"鼠标位置: X={x}, Y={y}")
             
-            # 窗口内相对坐标与百分比独立行显示
-            rel_text = ""
-            percent_text = ""
-            if self.window_info:
+            # 窗口内相对坐标与百分比常显
+            rel_text = "窗口内位置: "
+            percent_text = "百分比: "
+            if not self.window_info:
+                rel_text += "未选择窗口"
+                percent_text += "未选择窗口"
+            else:
                 win_x, win_y = self.window_info['left'], self.window_info['top']
                 win_w, win_h = self.window_info['width'], self.window_info['height']
                 
@@ -207,10 +252,11 @@ class MouseInspectorWindow(QMainWindow):
                 if 0 <= rel_x < win_w and 0 <= rel_y < win_h:
                     percent_x = round(rel_x / win_w, 4)
                     percent_y = round(rel_y / win_h, 4)
-                    rel_text = f"窗口内位置: X={rel_x}, Y={rel_y}"
-                    percent_text = f"百分比: X={percent_x:.4f}, Y={percent_y:.4f}"
+                    rel_text += f"X={rel_x}, Y={rel_y}"
+                    percent_text += f"X={percent_x:.4f}, Y={percent_y:.4f}"
                 else:
-                    rel_text = "鼠标不在窗口范围内"
+                    rel_text += "鼠标不在窗口范围内"
+                    percent_text += "鼠标不在窗口范围内"
             self.rel_label.setText(rel_text)
             self.percent_label.setText(percent_text)
             
@@ -307,8 +353,9 @@ class MouseInspectorWindow(QMainWindow):
 
     def update_window_position_display(self):
         """更新窗口位置显示"""
+        # 窗口位置常显
         if not self.window_info:
-            self.window_pos_label.setText("")
+            self.window_pos_label.setText("窗口位置: 未选择窗口")
             return
         
         try:
