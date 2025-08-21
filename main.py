@@ -4,10 +4,15 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtCore import QTimer, Slot, Qt
 from PySide6.QtGui import QColor
 import sys
+import ctypes
+from ctypes import wintypes
 from core.dist.cursor_func import get_cursor_position, get_pixel_color, get_pixel_area
 from core.dist.window_func import (get_foreground_window, get_window_info,
                                   find_window_by_name, get_screen_resolution,
                                   enum_windows)
+
+# 手动定义缺失的 Windows 类型
+wintypes.HWINEVENTHOOK = wintypes.HANDLE
 
 class MouseInspectorWindow(QMainWindow):
     def __init__(self):
@@ -19,6 +24,8 @@ class MouseInspectorWindow(QMainWindow):
         self.display_mode = "coord"  # coord/rgb/hsv
         self.selected_window = None  # 当前选中的窗口
         self.window_info = None      # 当前窗口信息
+        self._win_event_hook = None  # WinEventHook 句柄
+        self._win_event_proc = None  # 回调引用，防止被GC
         
         # 主布局
         main_widget = QWidget()
@@ -75,6 +82,10 @@ class MouseInspectorWindow(QMainWindow):
         self.rel_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.percent_label = QLabel("")
         self.percent_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.window_pos_label = QLabel("")
+        self.window_pos_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.screen_res_label = QLabel("")
+        self.screen_res_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.color_label = QLabel("颜色值: ")
         self.color_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         
@@ -85,6 +96,8 @@ class MouseInspectorWindow(QMainWindow):
         left_aligned.addWidget(self.pos_label, alignment=Qt.AlignLeft | Qt.AlignTop)
         left_aligned.addWidget(self.rel_label, alignment=Qt.AlignLeft | Qt.AlignTop)
         left_aligned.addWidget(self.percent_label, alignment=Qt.AlignLeft | Qt.AlignTop)
+        left_aligned.addWidget(self.window_pos_label, alignment=Qt.AlignLeft | Qt.AlignTop)
+        left_aligned.addWidget(self.screen_res_label, alignment=Qt.AlignLeft | Qt.AlignTop)
         left_aligned.addWidget(self.color_label, alignment=Qt.AlignLeft | Qt.AlignTop)
         display_layout.addLayout(left_aligned)
         display_panel.setLayout(display_layout)
@@ -94,10 +107,21 @@ class MouseInspectorWindow(QMainWindow):
         # 初始化窗口列表
         self.refresh_window_list()
         
+        # 初始化屏幕分辨率显示
+        self.update_screen_resolution()
+        
         # 定时器更新
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_display)
         self.timer.start(100)  # 100ms更新一次
+
+        # 监听屏幕分辨率/几何变化
+        try:
+            screen = self.screen()
+            if screen is not None:
+                screen.geometryChanged.connect(self._on_screen_geometry_changed)
+        except Exception:
+            pass
 
     def set_display_mode(self, mode):
         self.display_mode = mode
@@ -150,11 +174,18 @@ class MouseInspectorWindow(QMainWindow):
                 self.window_info = get_window_info(hwnd)
                 print(f"已选择窗口: {self.window_combo.currentText()}")
                 print(f"窗口信息: {self.window_info}")
+                # 启用 WinEventHook 监听窗口移动/大小变化
+                self._install_win_event_hook()
+                # 更新窗口位置显示
+                self.update_window_position_display()
             except Exception as e:
                 print(f"获取窗口信息失败: {e}")
                 self.window_info = None
+                self.window_pos_label.setText("")
         else:
             self.window_info = None
+            self._uninstall_win_event_hook()
+            self.window_pos_label.setText("")
 
     def update_display(self):
         pos = get_cursor_position()
@@ -193,6 +224,106 @@ class MouseInspectorWindow(QMainWindow):
                 else:  # hsv
                     h, s, v = self.rgb_to_hsv(r, g, b)
                     self.color_label.setText(f"HSV: ({h:.1f}°, {s:.1f}%, {v:.1f}%)")
+            
+            # 更新窗口位置显示（如果窗口信息发生变化）
+            if self.window_info:
+                self.update_window_position_display()
+
+    # -------------------- WinEventHook 部分 --------------------
+    def _on_screen_geometry_changed(self):
+        """屏幕分辨率/几何变化，刷新已选窗口数据和分辨率显示"""
+        # 更新屏幕分辨率显示
+        self.update_screen_resolution()
+        
+        # 刷新已选窗口数据
+        if self.selected_window:
+            try:
+                self.window_info = get_window_info(self.selected_window)
+                self.update_window_position_display()
+            except Exception:
+                self.window_info = None
+
+    def _install_win_event_hook(self):
+        """安装 WinEventHook 监听窗口移动/大小改变，自动刷新记录的窗口信息"""
+        if not self.selected_window:
+            return
+        if self._win_event_hook is not None:
+            return
+
+        user32 = ctypes.windll.user32
+
+        EVENT_OBJECT_LOCATIONCHANGE = 0x800B
+        WINEVENT_OUTOFCONTEXT = 0x0000
+        WINEVENT_SKIPOWNPROCESS = 0x0002
+
+        WinEventProcType = ctypes.WINFUNCTYPE(
+            None, wintypes.HWINEVENTHOOK, wintypes.DWORD, wintypes.HWND,
+            wintypes.LONG, wintypes.LONG, wintypes.DWORD, wintypes.DWORD
+        )
+
+        def callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+            # 仅处理所选窗口的位置信息变化
+            try:
+                if hwnd and self.selected_window and int(hwnd) == int(self.selected_window):
+                    self.window_info = get_window_info(self.selected_window)
+                    # 更新窗口位置显示
+                    self.update_window_position_display()
+            except Exception:
+                pass
+
+        self._win_event_proc = WinEventProcType(callback)
+        user32.SetWinEventHook.restype = wintypes.HWINEVENTHOOK
+        user32.SetWinEventHook.argtypes = [
+            wintypes.DWORD, wintypes.DWORD, wintypes.HMODULE,
+            WinEventProcType, wintypes.DWORD, wintypes.DWORD, wintypes.UINT
+        ]
+
+        self._win_event_hook = user32.SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+            None, self._win_event_proc, 0, 0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+        )
+
+    def _uninstall_win_event_hook(self):
+        """卸载 WinEventHook"""
+        if self._win_event_hook:
+            try:
+                ctypes.windll.user32.UnhookWinEvent(self._win_event_hook)
+            except Exception:
+                pass
+            self._win_event_hook = None
+
+    def update_screen_resolution(self):
+        """更新屏幕分辨率显示"""
+        try:
+            resolution = get_screen_resolution()
+            if resolution:
+                width, height = resolution
+                self.screen_res_label.setText(f"桌面分辨率: {width} x {height}")
+            else:
+                self.screen_res_label.setText("桌面分辨率: 获取失败")
+        except Exception:
+            self.screen_res_label.setText("桌面分辨率: 获取失败")
+
+    def update_window_position_display(self):
+        """更新窗口位置显示"""
+        if not self.window_info:
+            self.window_pos_label.setText("")
+            return
+        
+        try:
+            win_x, win_y = self.window_info['left'], self.window_info['top']
+            win_w, win_h = self.window_info['width'], self.window_info['height']
+            
+            # 通过窗口位置判断是否被最小化（最小化时坐标通常为负数）
+            is_minimized = (win_x < 0 or win_y < 0)
+            
+            if is_minimized:
+                self.window_pos_label.setText(f"窗口位置: ({win_x}, {win_y}) 尺寸: {win_w} x {win_h} [最小化]")
+            else:
+                self.window_pos_label.setText(f"窗口位置: ({win_x}, {win_y}) 尺寸: {win_w} x {win_h}")
+        except Exception:
+            self.window_pos_label.setText("窗口位置: 获取失败")
 
 if __name__ == "__main__":
     from PySide6.QtWidgets import QApplication
