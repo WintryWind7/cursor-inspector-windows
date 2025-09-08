@@ -216,6 +216,7 @@ class MouseInspectorWindow(QMainWindow):
                 self.window_info = get_window_info(hwnd)
                 print(f"已选择窗口: {self.window_combo.currentText()}")
                 print(f"窗口信息: {self.window_info}")
+                print(f"DEBUG: get_window_info 返回的尺寸: {self.window_info['width']} x {self.window_info['height']}")
                 # 启用 WinEventHook 监听窗口移动/大小变化
                 self._install_win_event_hook()
                 # 更新窗口位置显示
@@ -361,6 +362,8 @@ class MouseInspectorWindow(QMainWindow):
         try:
             win_x, win_y = self.window_info['left'], self.window_info['top']
             win_w, win_h = self.window_info['width'], self.window_info['height']
+            
+
             
             # 通过窗口位置判断是否被最小化（最小化时坐标通常为负数）
             is_minimized = (win_x < 0 or win_y < 0)

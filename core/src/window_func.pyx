@@ -59,6 +59,8 @@ cdef extern from "windows.h":
     int SM_CXSCREEN
     int SM_CYSCREEN
 
+
+
 cdef extern from "psapi.h":
     DWORD GetModuleFileNameExW(HANDLE hProcess, HANDLE hModule, LPWSTR lpFilename, DWORD nSize)
 
@@ -89,6 +91,7 @@ def get_window_info(window_handle):
     if not GetWindowRect(hwnd, &rect):
         raise WindowsError("无法获取窗口矩形")
     
+    # 直接返回物理坐标，不进行 DPI 缩放
     return {
         'left': rect.left,
         'top': rect.top,
@@ -97,6 +100,8 @@ def get_window_info(window_handle):
         'width': rect.right - rect.left,
         'height': rect.bottom - rect.top
     }
+
+
 
 def get_screen_resolution():
     """获取当前主显示器的屏幕分辨率
